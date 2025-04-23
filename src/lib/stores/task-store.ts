@@ -42,7 +42,7 @@ const TaskToast = ({
           React.createElement('p', { 
             key: 'time',
             className: 'mt-1 text-sm text-gray-500' 
-          }, `Starting in ${formatDistanceToNow(new Date(task.scheduledFor!))}`)
+          }, `Starting in ${formatDistanceToNow(new Date(task.scheduled_for!))}`)
         ])
       ])
     ]),
@@ -62,7 +62,7 @@ const TaskToast = ({
   ]);
 };
 
-interface TaskState {
+export interface TaskState {
   tasks: Task[];
   folders: Folder[];
   loading: boolean;
@@ -151,20 +151,39 @@ export const useTaskStore = create<TaskState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
 
       fetchTasks: async () => {
+        set({ loading: true });
         const { data: user } = await supabase.auth.getUser();
         if (!user.user) {
-          // If not authenticated, use local storage data
+          set({ loading: false });
           return;
         }
 
-        const { data: tasks, error } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('user_id', user.user.id)
-          .order('created_at', { ascending: false });
+        try {
+          const { data: tasks, error: tasksError } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('user_id', user.user.id)
+            .order('created_at', { ascending: false });
 
-        if (error) throw error;
-        set({ tasks: tasks || [], loading: false });
+          if (tasksError) throw tasksError;
+
+          const { data: folders, error: foldersError } = await supabase
+            .from('folders')
+            .select('*')
+            .eq('user_id', user.user.id)
+            .order('created_at', { ascending: true });
+
+          if (foldersError) throw foldersError;
+
+          set({ 
+            tasks: tasks || [], 
+            folders: folders || [],
+            loading: false 
+          });
+        } catch (error) {
+          console.error('Error fetching data:', error);
+          set({ loading: false });
+        }
       },
 
       fetchFolders: async () => {
@@ -189,7 +208,7 @@ export const useTaskStore = create<TaskState>()(
         const taskDuration = duration || 25;
         const formattedScheduledFor = formatTimestamp(scheduledFor);
         
-        const newTask = {
+        const newTask: Task = {
           id: crypto.randomUUID(),
           title,
           estimated_pomodoros: estimatedPomodoros,
@@ -202,23 +221,31 @@ export const useTaskStore = create<TaskState>()(
           user_id: user.user?.id,
           notified: false,
           reminder_enabled: reminderEnabled,
-          reminder_time: reminderEnabled ? reminderTime : null,
+          reminder_time: reminderEnabled ? reminderTime : undefined,
           created_at: new Date().toISOString()
         };
 
-        if (user.user) {
-          // If authenticated, save to Supabase
-          const { error } = await supabase
-            .from('tasks')
-            .insert(newTask)
-            .select()
-            .single();
-
-          if (error) throw error;
-        }
-
-        // Always update local state
+        // Always update local state first
         set((state) => ({ tasks: [newTask, ...state.tasks] }));
+
+        // If authenticated, save to Supabase
+        if (user.user) {
+          try {
+            const { error } = await supabase
+              .from('tasks')
+              .insert(newTask)
+              .select()
+              .single();
+
+            if (error) {
+              console.error('Error saving task to Supabase:', error);
+              // Don't throw error to allow local-only operation
+            }
+          } catch (error) {
+            console.error('Error in Supabase operation:', error);
+            // Don't throw error to allow local-only operation
+          }
+        }
 
         if (formattedScheduledFor && reminderEnabled) {
           toast.success(
@@ -278,16 +305,16 @@ export const useTaskStore = create<TaskState>()(
         if (error) throw error;
         set((state) => ({
           tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, startedAt: now } : t
+            t.id === id ? { ...t, started_at: now.toISOString() } : t
           ),
         }));
       },
 
       finishTask: async (id) => {
         const task = get().tasks.find((t) => t.id === id);
-        if (!task || !task.startedAt) return;
+        if (!task || !task.started_at) return;
 
-        const timeSpent = Math.floor((Date.now() - new Date(task.startedAt).getTime()) / 1000);
+        const timeSpent = Math.floor((Date.now() - new Date(task.started_at).getTime()) / 1000);
         
         const { error } = await supabase.rpc('update_task_time_spent', {
           task_id: id,
@@ -297,7 +324,7 @@ export const useTaskStore = create<TaskState>()(
         if (error) throw error;
         set((state) => ({
           tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, startedAt: undefined, timeSpent: (t.timeSpent || 0) + timeSpent } : t
+            t.id === id ? { ...t, started_at: undefined, time_spent: (t.time_spent || 0) + timeSpent } : t
           ),
         }));
       },
@@ -311,37 +338,37 @@ export const useTaskStore = create<TaskState>()(
         if (error) throw error;
         set((state) => ({
           tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, timeSpent: (t.timeSpent || 0) + seconds } : t
+            t.id === id ? { ...t, time_spent: (t.time_spent || 0) + seconds } : t
           ),
         }));
       },
 
-      updateTask: async (id, updates) => {
+      updateTask: async (id, updates: Partial<Task>) => {
         const dbUpdates: Record<string, any> = {};
         
         // Handle non-date fields directly
         if (updates.title !== undefined) dbUpdates.title = updates.title;
         if (updates.completed !== undefined) dbUpdates.completed = updates.completed;
-        if (updates.estimatedPomodoros !== undefined) dbUpdates.estimated_pomodoros = updates.estimatedPomodoros;
+        if (updates.estimated_pomodoros !== undefined) dbUpdates.estimated_pomodoros = updates.estimated_pomodoros;
         if (updates.duration !== undefined) dbUpdates.duration = updates.duration || 25;
-        if (updates.folderId !== undefined) dbUpdates.folder_id = updates.folderId;
-        if (updates.timeSpent !== undefined) dbUpdates.time_spent = updates.timeSpent;
+        if (updates.folder_id !== undefined) dbUpdates.folder_id = updates.folder_id;
+        if (updates.time_spent !== undefined) dbUpdates.time_spent = updates.time_spent;
         if (updates.notified !== undefined) dbUpdates.notified = updates.notified;
-        if (updates.reminderEnabled !== undefined) dbUpdates.reminder_enabled = updates.reminderEnabled;
-        if (updates.reminderTime !== undefined) dbUpdates.reminder_time = updates.reminderTime;
+        if (updates.reminder_enabled !== undefined) dbUpdates.reminder_enabled = updates.reminder_enabled;
+        if (updates.reminder_time !== undefined) dbUpdates.reminder_time = updates.reminder_time;
         
         // Handle date fields with extra validation
-        if (updates.scheduledFor !== undefined) {
-          const formattedScheduledFor = formatTimestamp(updates.scheduledFor);
-          if (updates.scheduledFor && !formattedScheduledFor) {
+        if (updates.scheduled_for !== undefined) {
+          const formattedScheduledFor = formatTimestamp(updates.scheduled_for);
+          if (updates.scheduled_for && !formattedScheduledFor) {
             throw new Error('Invalid scheduled time format');
           }
           dbUpdates.scheduled_for = formattedScheduledFor;
         }
         
-        if (updates.startedAt !== undefined) {
-          const formattedStartedAt = formatTimestamp(updates.startedAt);
-          if (updates.startedAt && !formattedStartedAt) {
+        if (updates.started_at !== undefined) {
+          const formattedStartedAt = formatTimestamp(updates.started_at);
+          if (updates.started_at && !formattedStartedAt) {
             throw new Error('Invalid start time format');
           }
           dbUpdates.started_at = formattedStartedAt;
@@ -387,7 +414,7 @@ export const useTaskStore = create<TaskState>()(
         set((state) => ({
           folders: state.folders.filter((f) => f.id !== id),
           tasks: state.tasks.map((t) =>
-            t.folderId === id ? { ...t, folderId: undefined } : t
+            t.folder_id === id ? { ...t, folder_id: undefined } : t
           ),
         }));
       },
@@ -412,12 +439,12 @@ export const useTaskStore = create<TaskState>()(
 
         tasks.forEach(task => {
           if (
-            task.scheduledFor &&
+            task.scheduled_for &&
             !task.completed &&
             !task.notified &&
-            task.reminderEnabled &&
-            new Date(task.scheduledFor).getTime() - now.getTime() <= (task.reminderTime || 15) * 60 * 1000 &&
-            new Date(task.scheduledFor).getTime() - now.getTime() > 0
+            task.reminder_enabled &&
+            new Date(task.scheduled_for).getTime() - now.getTime() <= (task.reminder_time || 15) * 60 * 1000 &&
+            new Date(task.scheduled_for).getTime() - now.getTime() > 0
           ) {
             toast.custom(
               (t) => React.createElement(TaskToast, {
@@ -442,16 +469,43 @@ export const useTaskStore = create<TaskState>()(
       },
     }),
     {
-      name: 'task-storage', // name of the item in local storage
+      name: 'task-storage',
       partialize: (state) => ({ 
         tasks: state.tasks,
         folders: state.folders
-      })
+      }),
+      onRehydrateStorage: () => (state) => {
+        // Fetch fresh data from Supabase when the store is rehydrated
+        if (state) {
+          state.fetchTasks();
+        }
+      }
     }
   )
 );
 
+// Initialize data fetching
 if (typeof window !== 'undefined') {
+  // Fetch tasks initially
+  useTaskStore.getState().fetchTasks();
+  
+  // Set up real-time subscription for tasks
+  const tasksSubscription = supabase
+    .channel('tasks-channel')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'tasks'
+      },
+      () => {
+        useTaskStore.getState().fetchTasks();
+      }
+    )
+    .subscribe();
+
+  // Check for upcoming tasks every minute
   setInterval(() => {
     useTaskStore.getState().checkUpcomingTasks();
   }, 60000);

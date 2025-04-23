@@ -6,6 +6,7 @@ import { useTimerStore } from '../lib/stores/timer-store';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
+import { Task } from '../lib/types';
 
 const defaultColors = [
   '#9F353A', // Primary color
@@ -19,6 +20,16 @@ const defaultColors = [
   '#DCEDC1', // Light Green
   '#FFD3B6', // Peach
 ];
+
+interface FormData {
+  title: string;
+  estimated_pomodoros: number;
+  duration: number;
+  scheduled_for?: Date;
+  folder_id?: string;
+  reminder_enabled: boolean;
+  reminder_time?: number;
+}
 
 export function TaskList() {
   const { tasks = [], folders = [], addTask, toggleTask, removeTask, addFolder, removeFolder, updateFolder, updateTask, setActiveTab } = useTaskStore();
@@ -36,21 +47,21 @@ export function TaskList() {
 
   // Define getFolderTasks function
   const getFolderTasks = (folderId: string) => {
-    return tasks.filter(task => task.folderId === folderId);
+    return tasks.filter(task => task.folder_id === folderId);
   };
 
   // Define uncategorizedTasks
-  const uncategorizedTasks = tasks.filter(task => !task.folderId);
+  const uncategorizedTasks = tasks.filter(task => !task.folder_id);
 
-  const handleSubmit = (formData) => {
+  const handleSubmit = (formData: FormData) => {
     addTask(
       formData.title,
-      formData.estimatedPomodoros,
+      formData.estimated_pomodoros,
       formData.duration,
-      formData.scheduledFor,
-      formData.folderId,
-      formData.reminderEnabled,
-      formData.reminderTime
+      formData.scheduled_for,
+      formData.folder_id,
+      formData.reminder_enabled,
+      formData.reminder_time
     );
     setShowTaskForm(false);
     toast.success('Task added successfully!');
@@ -73,7 +84,7 @@ export function TaskList() {
   };
 
   const handleUpdateFolder = (folderId: string, name: string, color: string) => {
-    updateFolder(folderId, { name, color });
+    updateFolder(folderId, name, color);
     setEditingFolder(null);
     toast.success('Folder updated successfully!');
   };
@@ -310,11 +321,11 @@ function TaskItem({ task, onToggle, onRemove, onUpdate, isSelected, isTimerRunni
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [scheduledFor, setScheduledFor] = useState(
-    task.scheduledFor ? format(new Date(task.scheduledFor), "yyyy-MM-dd'T'HH:mm") : ''
+    task.scheduled_for ? format(new Date(task.scheduled_for), "yyyy-MM-dd'T'HH:mm") : ''
   );
-  const [estimatedPomodoros, setEstimatedPomodoros] = useState(task.estimatedPomodoros);
+  const [estimatedPomodoros, setEstimatedPomodoros] = useState(task.estimated_pomodoros);
   const [duration, setDuration] = useState(task.duration);
-  const [selectedFolderId, setSelectedFolderId] = useState(task.folderId || '');
+  const [selectedFolderId, setSelectedFolderId] = useState(task.folder_id || '');
   const folders = useTaskStore((state) => state.folders);
   const selectTask = useTimerStore((state) => state.selectTask);
   const setActiveTab = useTaskStore((state) => state.setActiveTab);
@@ -329,13 +340,19 @@ function TaskItem({ task, onToggle, onRemove, onUpdate, isSelected, isTimerRunni
   const handleUpdate = () => {
     onUpdate(task.id, {
       title,
-      scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
-      estimatedPomodoros,
+      scheduled_for: scheduledFor ? scheduledFor : undefined,
+      estimated_pomodoros: estimatedPomodoros,
       duration,
-      folderId: selectedFolderId || undefined,
+      folder_id: selectedFolderId || undefined,
     });
     setIsEditing(false);
     toast.success('Task updated successfully!');
+  };
+
+  const formatTimeSpent = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
   if (isEditing) {
@@ -411,88 +428,81 @@ function TaskItem({ task, onToggle, onRemove, onUpdate, isSelected, isTimerRunni
     );
   }
 
-  const folder = folders.find((f) => f.id === task.folderId);
+  const folder = folders.find((f) => f.id === task.folder_id);
 
   return (
     <div
       className={cn(
-        "flex items-center justify-between p-4 transition-colors cursor-pointer",
-        isSelected ? "bg-[#9F353A]/10 dark:bg-[#9F353A]/20" : "hover:bg-gray-50 dark:hover:bg-gray-700",
-        isSelected && isTimerRunning && "animate-pulse"
+        'px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors',
+        isSelected && 'bg-gray-50 dark:bg-gray-700/50'
       )}
-      onClick={handleTaskClick}
-      role="button"
-      tabIndex={0}
     >
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle(task.id);
-          }}
-          className="focus:outline-none"
+          onClick={() => onToggle(task.id)}
+          className={cn(
+            'p-1 rounded-full transition-colors',
+            task.completed
+              ? 'text-green-500 hover:text-green-600'
+              : 'text-gray-400 hover:text-gray-500'
+          )}
         >
           {task.completed ? (
-            <CheckCircle2 className="w-6 h-6 text-green-500" />
+            <CheckCircle2 className="w-5 h-5" />
           ) : (
-            <Circle className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+            <Circle className="w-5 h-5" />
           )}
         </button>
-        <div className="flex flex-col">
-          <span className={cn(
-            task.completed && "line-through text-gray-500 dark:text-gray-400",
-            "text-gray-900 dark:text-white"
-          )}>
+
+        <div className="flex-1 min-w-0">
+          <div
+            className={cn(
+              'text-sm font-medium text-gray-900 dark:text-white truncate',
+              task.completed && 'line-through text-gray-500'
+            )}
+          >
             {task.title}
-          </span>
+          </div>
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-            {task.scheduledFor && (
+            {task.scheduled_for && (
               <span className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />
-                {format(new Date(task.scheduledFor), 'MMM d, yyyy HH:mm')}
+                {format(new Date(task.scheduled_for), 'MMM d, yyyy HH:mm')}
               </span>
             )}
             {folder && (
-              <span className="flex items-center gap-1">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: folder.color }}
-                />
+              <span
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+                style={{
+                  backgroundColor: `${folder.color}20`,
+                  color: folder.color,
+                }}
+              >
                 {folder.name}
               </span>
             )}
             <span className="flex items-center gap-1">
               <Timer className="w-4 h-4" />
-              {task.pomodoros}/{task.estimatedPomodoros}
+              {task.pomodoros}/{task.estimated_pomodoros}
             </span>
             <span className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
-              {task.duration}m
+              {formatTimeSpent(task.time_spent)}
             </span>
-            {task.timeSpent > 0 && (
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                ({Math.floor(task.timeSpent / 60)}m spent)
-              </span>
-            )}
           </div>
         </div>
       </div>
-      <div className="flex items-center space-x-2">
+
+      <div className="flex items-center gap-2">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditing(true);
-          }}
-          className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          onClick={() => setIsEditing(true)}
+          className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
         >
           <Edit2 className="w-4 h-4" />
         </button>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(task.id);
-          }}
-          className="p-2 text-gray-400 dark:text-gray-500 hover:text-[#9F353A]"
+          onClick={() => onRemove(task.id)}
+          className="p-1 text-gray-400 dark:text-gray-500 hover:text-[#9F353A]"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -501,14 +511,20 @@ function TaskItem({ task, onToggle, onRemove, onUpdate, isSelected, isTimerRunni
   );
 }
 
-function TaskForm({ onSubmit, onCancel, initialValues = {} }) {
+interface TaskFormProps {
+  onSubmit: (data: FormData) => void;
+  onCancel: () => void;
+  initialValues?: Partial<Task>;
+}
+
+function TaskForm({ onSubmit, onCancel, initialValues = {} }: TaskFormProps) {
   const [title, setTitle] = useState(initialValues.title || '');
-  const [estimatedPomodoros, setEstimatedPomodoros] = useState(initialValues.estimatedPomodoros || 1);
+  const [estimatedPomodoros, setEstimatedPomodoros] = useState(initialValues.estimated_pomodoros || 1);
   const [duration, setDuration] = useState(initialValues.duration || 25);
-  const [selectedDate, setSelectedDate] = useState(initialValues.scheduledFor || '');
-  const [selectedFolderId, setSelectedFolderId] = useState(initialValues.folderId || '');
-  const [reminderEnabled, setReminderEnabled] = useState(initialValues.reminderEnabled || false);
-  const [reminderTime, setReminderTime] = useState(initialValues.reminderTime || 15);
+  const [selectedDate, setSelectedDate] = useState(initialValues.scheduled_for || '');
+  const [selectedFolderId, setSelectedFolderId] = useState(initialValues.folder_id || '');
+  const [reminderEnabled, setReminderEnabled] = useState(initialValues.reminder_enabled || false);
+  const [reminderTime, setReminderTime] = useState(initialValues.reminder_time || 15);
   const folders = useTaskStore((state) => state.folders);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -516,12 +532,12 @@ function TaskForm({ onSubmit, onCancel, initialValues = {} }) {
     if (title.trim()) {
       onSubmit({
         title: title.trim(),
-        estimatedPomodoros,
+        estimated_pomodoros: estimatedPomodoros,
         duration,
-        scheduledFor: selectedDate ? new Date(selectedDate) : undefined,
-        folderId: selectedFolderId || undefined,
-        reminderEnabled,
-        reminderTime: reminderEnabled ? reminderTime : undefined,
+        scheduled_for: selectedDate ? new Date(selectedDate) : undefined,
+        folder_id: selectedFolderId || undefined,
+        reminder_enabled: reminderEnabled,
+        reminder_time: reminderEnabled ? reminderTime : undefined,
       });
     }
   };

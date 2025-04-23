@@ -3,16 +3,17 @@ export interface Task {
   title: string;
   completed: boolean;
   pomodoros: number;
-  estimatedPomodoros: number;
-  createdAt: Date;
-  scheduledFor?: Date;
-  folderId?: string;
+  estimated_pomodoros: number;
+  created_at: string;
+  scheduled_for?: string | null;
+  folder_id?: string;
   duration: number; // in minutes
   notified?: boolean;
-  timeSpent: number; // in seconds
-  startedAt?: Date;
-  reminderEnabled: boolean;
-  reminderTime?: number; // minutes before scheduled time
+  time_spent: number; // in seconds
+  started_at?: string;
+  reminder_enabled: boolean;
+  reminder_time?: number; // minutes before scheduled time
+  user_id?: string;
 }
 
 export interface Folder {

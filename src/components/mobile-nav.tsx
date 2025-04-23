@@ -73,9 +73,6 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
                 'w-6 h-6 mb-1',
                 showProfileMenu ? 'text-[#9F353A]' : 'text-gray-500 dark:text-gray-400'
               )} />
-              {user?.user_metadata?.avatar_id && (
-                <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#9F353A] rounded-full border-2 border-white dark:border-gray-800" />
-              )}
             </div>
             <span className={cn(
               'text-xs',
